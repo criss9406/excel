@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block titulo %}Inicio · PyAutomation{% endblock %}
+
+{% block contenido %}
+<section class="hero">
+    <h1>Analiza tus archivos de backoffice</h1>
+    <p class="hero-sub">
+        Sube un Excel o CSV, elige el tipo de analisis y obten un reporte
+        detallado con cada paso aplicado a tus datos.
+    </p>
+</section>
+
+<section class="card">
+    <form action="/analizar" method="post" enctype="multipart/form-data" class="form-analisis">
+        <div class="form-row">
+            <label for="tipo">Tipo de analisis</label>
+            <select name="tipo" id="tipo" required>
+                {% for a in analisis_disponibles %}
+                <option value="{{ a.id }}" title="{{ a.descripcion }}">{{ a.nombre }}</option>
+                {% endfor %}
+            </select>
+            <small id="descripcion-analisis" class="hint"></small>
+        </div>
+
+        <fieldset id="params-inventario" class="form-fieldset" hidden>
+            <legend>Parametros del analisis de inventario</legend>
+            <div class="form-grid">
+                <div class="form-row">
+                    <label for="lead_time_dias">Lead time (dias)</label>
+                    <input type="number" name="lead_time_dias" id="lead_time_dias" value="7" min="1" max="365">
+                    <small class="hint">Dias que demora reponer stock.</small>
+                </div>
+                <div class="form-row">
+                    <label for="margen_pct">Margen sobre precio (%)</label>
+                    <input type="number" name="margen_pct" id="margen_pct" value="30" min="0" max="95" step="0.1">
+                    <small class="hint">Sirve para estimar el costo unitario y el capital inmovilizado.</small>
+                </div>
+                <div class="form-row">
+                    <label for="dias_zombi">Ventana zombi (dias)</label>
+                    <input type="number" name="dias_zombi" id="dias_zombi" value="60" min="1" max="3650">
+                    <small class="hint">Sin ventas en este horizonte se marca como zombi.</small>
+                </div>
+                <div class="form-row">
+                    <label for="factor_sobrestock">Factor sobre-stock</label>
+                    <input type="number" name="factor_sobrestock" id="factor_sobrestock" value="4" min="1" step="0.1">
+                    <small class="hint">Multiplo del lead time desde el cual se considera sobre-stock.</small>
+                </div>
+            </div>
+        </fieldset>
+
+        <div class="form-row">
+            <label for="archivo">Archivo (.xlsx, .xls o .csv)</label>
+            <input type="file" name="archivo" id="archivo" accept=".xlsx,.xls,.csv" required>
+        </div>
+
+        <button type="submit" class="btn-primary">Analizar</button>
+    </form>
+</section>
+
+<section class="catalogo">
+    <h2>Analisis disponibles</h2>
+    <ul class="lista-analisis">
+        {% for a in analisis_disponibles %}
+        <li>
+            <strong>{{ a.nombre }}</strong>
+            <span>{{ a.descripcion }}</span>
+        </li>
+        {% endfor %}
+    </ul>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const descripciones = {
+        {% for a in analisis_disponibles %}
+        "{{ a.id }}": "{{ a.descripcion|e }}"{% if not loop.last %},{% endif %}
+        {% endfor %}
+    };
+    const select = document.getElementById('tipo');
+    const hint = document.getElementById('descripcion-analisis');
+    const paramsInv = document.getElementById('params-inventario');
+
+    function actualizarUI() {
+        hint.textContent = descripciones[select.value] || '';
+        paramsInv.hidden = (select.value !== 'inventario');
+    }
+    select.addEventListener('change', actualizarUI);
+    actualizarUI();
+</script>
+{% endblock %}

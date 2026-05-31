@@ -1,0 +1,16 @@
+# Entorno virtual
+venv/
+.venv/
+
+# Cachés de Python
+__pycache__/
+*.py[cod]
+
+# Pytest
+.pytest_cache/
+
+# Variables de entorno / secretos
+.env
+
+# Exports/temporales locales
+*.tmp
