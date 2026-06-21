@@ -138,3 +138,7 @@ python -m pytest tests/ -v
 - **Pricing:** valor por ahorro (línea PyAutomation — 20–30% del ahorro anual, piso USD 250).
 - **Pitch:** "subes tu archivo, eliges el análisis y recibes el reporte + el detalle de qué hizo el sistema para llegar ahí. No es una caja negra."
 - **Demo:** versión limpia y versión sucia del dataset Kaggle de inventario para mostrar el detector en ambos extremos.
+
+---
+
+> Registrado en [[REGISTRO_TECNICO_PROYECTOS]] · [[GUIA_COMERCIAL_Y_MAR

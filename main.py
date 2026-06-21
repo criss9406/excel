@@ -3,6 +3,10 @@
 Monta archivos estaticos y el router del modulo de analisis.
 """
 from pathlib import Path
+import mimetypes
+
+mimetypes.add_type('text/css', '.css')
+mimetypes.add_type('application/javascript', '.js')
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles

@@ -89,8 +89,48 @@ def detectar_columnas(df: pd.DataFrame) -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# Lectura
+# Lectura y Limpieza
 # ---------------------------------------------------------------------------
+
+def _limpiar_datos(df: pd.DataFrame) -> tuple[pd.DataFrame, list[dict]]:
+    cambios = []
+    df_limpio = df.copy()
+
+    # Eliminar duplicados
+    dups = df_limpio.duplicated(keep="first")
+    if dups.any():
+        for idx in df_limpio[dups].index:
+            cambios.append({
+                "Fila (aprox Excel)": idx + 2,
+                "Columna": "(Todas)",
+                "Antes": "Fila duplicada",
+                "Despues": "Fila eliminada"
+            })
+        df_limpio = df_limpio[~dups]
+
+    # Rellenar nulos
+    for col in df_limpio.columns:
+        mask = df_limpio[col].isna()
+        if not mask.any():
+            continue
+            
+        if pd.api.types.is_numeric_dtype(df_limpio[col]):
+            valor_reemplazo = 0
+            desc_reemplazo = "0"
+        else:
+            valor_reemplazo = "Sin dato"
+            desc_reemplazo = "Sin dato"
+            
+        for idx in df_limpio[mask].index:
+            cambios.append({
+                "Fila (aprox Excel)": idx + 2,
+                "Columna": col,
+                "Antes": "Vacio/NaN",
+                "Despues": desc_reemplazo
+            })
+        df_limpio[col] = df_limpio[col].fillna(valor_reemplazo)
+
+    return df_limpio, cambios
 
 def _leer_archivo(contenido: bytes, nombre: str) -> pd.DataFrame:
     nombre_lower = nombre.lower()
@@ -406,6 +446,8 @@ def analizar(
     df = _leer_archivo(contenido, nombre_archivo)
     df.columns = [str(c).strip() for c in df.columns]
 
+    df, cambios_limpieza = _limpiar_datos(df)
+
     mapeo = detectar_columnas(df)
     faltantes = [c for c in _REQUERIDAS if c not in mapeo]
     if faltantes:
@@ -477,6 +519,7 @@ def analizar(
         "df_dict": df_dict,
         "columnas": list(df.columns),
         "tipo_analisis": "inventario",
+        "cambios_limpieza": cambios_limpieza,
         "parametros": {
             "lead_time_dias": lead_time_dias,
             "margen_pct": margen_pct,

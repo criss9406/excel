@@ -14,6 +14,11 @@ from __future__ import annotations
 from io import BytesIO
 from typing import Any
 
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+
 import pandas as pd
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
@@ -226,18 +231,21 @@ def _hoja_datos_marcados(resultado: dict[str, Any]) -> pd.DataFrame:
     return df
 
 
+def _hoja_cambios(resultado: dict[str, Any]) -> pd.DataFrame:
+    cambios = resultado.get("cambios_limpieza", [])
+    if not cambios:
+        return pd.DataFrame([{"Mensaje": "Sin cambios"}])
+    return pd.DataFrame(cambios)
+
 def generar_excel(resultado: dict[str, Any]) -> bytes:
     """Construye el archivo Excel completo y devuelve sus bytes."""
     if resultado.get("tipo_analisis") == "inventario":
+        df_dict = resultado.get("df_dict", [])
+        df_limpio = pd.DataFrame(df_dict) if df_dict else pd.DataFrame([{"Mensaje": "Sin datos"}])
+        
         hojas = [
-            ("Resumen", _hoja_resumen(resultado), False),
-            ("Parametros", _hoja_parametros_inv(resultado), False),
-            ("Riesgo de quiebre", _hoja_riesgo(resultado), True),
-            ("Sobre-stock", _hoja_sobrestock(resultado), True),
-            ("ABC", _hoja_abc(resultado), True),
-            ("Productos zombi", _hoja_zombis(resultado), True),
-            ("Pasos del proceso", _hoja_pasos(resultado), True),
-            ("Datos", _hoja_datos_marcados(resultado), True),
+            ("Datos Limpios", df_limpio, True),
+            ("Cambios", _hoja_cambios(resultado), True),
         ]
     else:
         hojas = [
@@ -254,3 +262,91 @@ def generar_excel(resultado: dict[str, Any]) -> bytes:
             _estilizar_hoja(writer.sheets[nombre], df, con_filtro=con_filtro)
     salida.seek(0)
     return salida.read()
+
+def generar_pdf_inventario(resultado: dict[str, Any]) -> bytes:
+    """Genera un reporte PDF con los dashboards del inventario."""
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    elementos = []
+    
+    styles = getSampleStyleSheet()
+    title_style = styles['Heading1']
+    subtitle_style = styles['Heading2']
+    normal_style = styles['Normal']
+    
+    elementos.append(Paragraph(f"Dashboard de Inventario: {resultado.get('archivo', '')}", title_style))
+    elementos.append(Spacer(1, 12))
+    
+    # Resumen
+    elementos.append(Paragraph("Resumen General", subtitle_style))
+    inv = resultado.get("kpis_inventario", {})
+    datos_resumen = [
+        ["Total Productos (Filas)", str(resultado.get("n_filas", 0))],
+        ["Columnas", str(resultado.get("n_columnas", 0))],
+        ["Ingreso Total ABC", f"${inv.get('abc', {}).get('ingreso_total', 0):,.0f}".replace(',', '.')],
+    ]
+    t_resumen = Table(datos_resumen, colWidths=[200, 200])
+    t_resumen.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.whitesmoke),
+        ('GRID', (0, 0), (-1, -1), 1, colors.lightgrey),
+        ('PADDING', (0, 0), (-1, -1), 6),
+    ]))
+    elementos.append(t_resumen)
+    elementos.append(Spacer(1, 12))
+    
+    # Riesgo de Quiebre
+    elementos.append(Paragraph("1. Riesgo de Quiebre (Top 10)", subtitle_style))
+    riesgo_top = inv.get("riesgo_quiebre", {}).get("top", [])
+    if riesgo_top:
+        datos_riesgo = [["Producto", "Stock", "Venta Diaria", "Dias Faltantes", "Valor Riesgo"]]
+        for r in riesgo_top[:10]:
+            datos_riesgo.append([str(r["producto"]), str(r["stock_actual"]), str(r["venta_diaria_prom"]), str(r["dias_faltantes"]), str(r["valor_riesgo"])])
+        t_riesgo = Table(datos_riesgo)
+        t_riesgo.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1F3A5F")),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.lightgrey),
+        ]))
+        elementos.append(t_riesgo)
+    else:
+        elementos.append(Paragraph("Sin productos en riesgo.", normal_style))
+    elementos.append(Spacer(1, 12))
+    
+    # Sobre-stock
+    elementos.append(Paragraph("2. Sobre-stock (Top 10)", subtitle_style))
+    sobre_top = inv.get("sobre_stock", {}).get("top", [])
+    if sobre_top:
+        datos_sobre = [["Producto", "Stock", "Venta Diaria", "Dias Excedentes", "Capital Inmovilizado"]]
+        for r in sobre_top[:10]:
+            datos_sobre.append([str(r["producto"]), str(r["stock_actual"]), str(r["venta_diaria_prom"]), str(r["dias_excedentes"]), str(r["capital_inmovilizado"])])
+        t_sobre = Table(datos_sobre)
+        t_sobre.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1F3A5F")),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.lightgrey),
+        ]))
+        elementos.append(t_sobre)
+    else:
+        elementos.append(Paragraph("Sin productos con sobre-stock.", normal_style))
+    elementos.append(Spacer(1, 12))
+    
+    # Productos Zombi
+    elementos.append(Paragraph("3. Productos Zombi (Top 10)", subtitle_style))
+    zombi_top = inv.get("zombis", {}).get("top", [])
+    if zombi_top:
+        datos_zombi = [["Producto", "Stock", "Dias sin Venta", "Capital Inmovilizado"]]
+        for r in zombi_top[:10]:
+            datos_zombi.append([str(r["producto"]), str(r["stock_actual"]), str(r.get("dias_sin_venta", "-")), str(r["valor_inmovilizado"])])
+        t_zombi = Table(datos_zombi)
+        t_zombi.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1F3A5F")),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.lightgrey),
+        ]))
+        elementos.append(t_zombi)
+    else:
+        elementos.append(Paragraph("Sin productos zombi.", normal_style))
+
+    doc.build(elementos)
+    buffer.seek(0)
+    return buffer.read()

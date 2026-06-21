@@ -1,91 +1,256 @@
 {% extends "base.html" %}
-{% block titulo %}Inicio · PyAutomation{% endblock %}
+{% block titulo %}Analizador de Excel · PyAutomation{% endblock %}
 
 {% block contenido %}
-<section class="hero">
-    <h1>Analiza tus archivos de backoffice</h1>
-    <p class="hero-sub">
-        Sube un Excel o CSV, elige el tipo de analisis y obten un reporte
-        detallado con cada paso aplicado a tus datos.
-    </p>
-</section>
+<div class="app-wrapper">
+  <div class="app-container">
 
-<section class="card">
-    <form action="/analizar" method="post" enctype="multipart/form-data" class="form-analisis">
-        <div class="form-row">
-            <label for="tipo">Tipo de analisis</label>
-            <select name="tipo" id="tipo" required>
-                {% for a in analisis_disponibles %}
-                <option value="{{ a.id }}" title="{{ a.descripcion }}">{{ a.nombre }}</option>
-                {% endfor %}
-            </select>
-            <small id="descripcion-analisis" class="hint"></small>
+    <!-- header -->
+    <div class="app-header">
+      <div class="app-logo">
+        <div class="logo-icon"></div>
+      </div>
+      <div class="app-title-group">
+        <div class="app-title">Analizador de Excel</div>
+        <div class="app-subtitle">Uso interno · analistas</div>
+      </div>
+      <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Cambiar tema">
+        <span id="theme-icon">☾</span>
+        <span id="theme-label">Oscuro</span>
+      </button>
+    </div>
+
+    <!-- main card -->
+    <form action="/analizar" method="post" enctype="multipart/form-data" class="main-card" id="analisis-form">
+
+      <!-- paso 1: tipo de análisis -->
+      <div class="step-row">
+        <div class="step-num">1</div>
+        <div class="step-title-txt">Elige el análisis</div>
+      </div>
+      <div class="step-body">
+        <div class="select-wrapper">
+          <select id="tipo-select" name="tipo" required>
+            {% for a in analisis_disponibles %}
+            <option value="{{ a.id }}" data-desc="{{ a.descripcion }}">{{ a.nombre }}</option>
+            {% endfor %}
+          </select>
+          <span class="select-arrow" aria-hidden="true">▼</span>
+        </div>
+        <div class="func-hint" id="func-hint">{{ analisis_disponibles[0].descripcion }}</div>
+      </div>
+
+      <!-- paso 2: cargar archivo(s) -->
+      <div class="step-row">
+        <div class="step-num">2</div>
+        <div class="step-title-txt" id="upload-title">Carga el archivo</div>
+      </div>
+      <div class="step-body">
+
+        <!-- zona archivo único con archivo seleccionado -->
+        <div id="zone-single-selected" class="hidden">
+          <div class="file-chip-single">
+            <div class="file-icon-sm"></div>
+            <span class="chip-name" id="single-file-name"></span>
+            <button type="button" class="change-btn" id="change-btn">cambiar</button>
+          </div>
         </div>
 
-        <fieldset id="params-inventario" class="form-fieldset" hidden>
-            <legend>Parametros del analisis de inventario</legend>
-            <div class="form-grid">
-                <div class="form-row">
-                    <label for="lead_time_dias">Lead time (dias)</label>
-                    <input type="number" name="lead_time_dias" id="lead_time_dias" value="7" min="1" max="365">
-                    <small class="hint">Dias que demora reponer stock.</small>
-                </div>
-                <div class="form-row">
-                    <label for="margen_pct">Margen sobre precio (%)</label>
-                    <input type="number" name="margen_pct" id="margen_pct" value="30" min="0" max="95" step="0.1">
-                    <small class="hint">Sirve para estimar el costo unitario y el capital inmovilizado.</small>
-                </div>
-                <div class="form-row">
-                    <label for="dias_zombi">Ventana zombi (dias)</label>
-                    <input type="number" name="dias_zombi" id="dias_zombi" value="60" min="1" max="3650">
-                    <small class="hint">Sin ventas en este horizonte se marca como zombi.</small>
-                </div>
-                <div class="form-row">
-                    <label for="factor_sobrestock">Factor sobre-stock</label>
-                    <input type="number" name="factor_sobrestock" id="factor_sobrestock" value="4" min="1" step="0.1">
-                    <small class="hint">Multiplo del lead time desde el cual se considera sobre-stock.</small>
-                </div>
-            </div>
-        </fieldset>
-
-        <div class="form-row">
-            <label for="archivo">Archivo (.xlsx, .xls o .csv)</label>
-            <input type="file" name="archivo" id="archivo" accept=".xlsx,.xls,.csv" required>
+        <!-- zona archivo único vacía -->
+        <div id="zone-single-empty" class="drop-zone-single" tabindex="0" role="button" aria-label="Cargar archivo Excel">
+          <div class="file-icon-lg"></div>
+          <div class="drop-hint">Arrastra 1 archivo .xlsx o haz clic para examinar</div>
         </div>
 
-        <button type="submit" class="btn-primary">Analizar</button>
+        <input type="file" id="file-input" name="archivo" accept=".xlsx,.xls,.csv" class="sr-only" aria-label="Seleccionar archivo Excel" required>
+      </div>
+
+      <!-- paso 3: procesar -->
+      <div class="step-row">
+        <div class="step-num">3</div>
+        <div class="step-title-txt">Procesar</div>
+      </div>
+      <div class="step-body step-body-last">
+        <button type="submit" class="process-btn btn-disabled" id="process-btn" disabled>Procesar datos</button>
+        <div class="error-box hidden" id="error-box" role="alert"></div>
+      </div>
+
     </form>
-</section>
 
-<section class="catalogo">
-    <h2>Analisis disponibles</h2>
-    <ul class="lista-analisis">
-        {% for a in analisis_disponibles %}
-        <li>
-            <strong>{{ a.nombre }}</strong>
-            <span>{{ a.descripcion }}</span>
-        </li>
-        {% endfor %}
-    </ul>
-</section>
+    <!-- result block -->
+    <div id="resultado-block" class="main-card hidden" style="text-align: center; padding: 40px 20px;">
+      <div style="font-size: 48px; color: #4ade80; margin-bottom: 20px;">✓</div>
+      <h2 style="font-size: 24px; font-weight: 600; margin-bottom: 10px;">¡Análisis terminado!</h2>
+      <p style="color: var(--text-secondary); margin-bottom: 30px;">Tu archivo ha sido procesado exitosamente.</p>
+      
+      <div style="display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;" id="download-buttons">
+        <!-- Buttons injected here -->
+      </div>
+      
+      <div style="margin-top: 30px;">
+        <button type="button" class="change-btn" id="reset-btn" style="padding: 8px 16px;">Realizar otro análisis</button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-    const descripciones = {
-        {% for a in analisis_disponibles %}
-        "{{ a.id }}": "{{ a.descripcion|e }}"{% if not loop.last %},{% endif %}
-        {% endfor %}
-    };
-    const select = document.getElementById('tipo');
-    const hint = document.getElementById('descripcion-analisis');
-    const paramsInv = document.getElementById('params-inventario');
+  // UI Logic for interactions
+  const fileInput = document.getElementById('file-input');
+  const tipoSelect = document.getElementById('tipo-select');
+  const funcHint = document.getElementById('func-hint');
+  const zoneSingleEmpty = document.getElementById('zone-single-empty');
+  const zoneSingleSel = document.getElementById('zone-single-selected');
+  const singleFileName = document.getElementById('single-file-name');
+  const changeBtn = document.getElementById('change-btn');
+  const processBtn = document.getElementById('process-btn');
+  const analisisForm = document.getElementById('analisis-form');
+  const errorBox = document.getElementById('error-box');
 
-    function actualizarUI() {
-        hint.textContent = descripciones[select.value] || '';
-        paramsInv.hidden = (select.value !== 'inventario');
+  const themeToggle = document.getElementById('theme-toggle');
+  const themeIcon = document.getElementById('theme-icon');
+  const themeLabel = document.getElementById('theme-label');
+  let dark = false;
+
+  themeToggle.addEventListener('click', () => {
+    dark = !dark;
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    themeIcon.textContent = dark ? '☀' : '☾';
+    themeLabel.textContent = dark ? 'Claro' : 'Oscuro';
+  });
+
+  tipoSelect.addEventListener('change', () => {
+    const selectedOpt = tipoSelect.options[tipoSelect.selectedIndex];
+    funcHint.textContent = selectedOpt.getAttribute('data-desc') || '';
+  });
+
+  function updateFileUI() {
+    if (fileInput.files && fileInput.files.length > 0) {
+      const file = fileInput.files[0];
+      if (file.size > 50 * 1024 * 1024) {
+        errorBox.textContent = `"${file.name}" supera el límite de 50 MB.`;
+        errorBox.classList.remove('hidden');
+        fileInput.value = '';
+        return;
+      }
+      errorBox.classList.add('hidden');
+      singleFileName.textContent = file.name;
+      zoneSingleEmpty.classList.add('hidden');
+      zoneSingleSel.classList.remove('hidden');
+      processBtn.disabled = false;
+      processBtn.classList.remove('btn-disabled');
+    } else {
+      zoneSingleSel.classList.add('hidden');
+      zoneSingleEmpty.classList.remove('hidden');
+      processBtn.disabled = true;
+      processBtn.classList.add('btn-disabled');
     }
-    select.addEventListener('change', actualizarUI);
-    actualizarUI();
+  }
+
+  fileInput.addEventListener('change', updateFileUI);
+
+  zoneSingleEmpty.addEventListener('click', () => fileInput.click());
+  zoneSingleEmpty.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
+  });
+
+  changeBtn.addEventListener('click', () => {
+    fileInput.value = '';
+    updateFileUI();
+  });
+
+  zoneSingleEmpty.addEventListener('dragover', e => {
+    e.preventDefault();
+    zoneSingleEmpty.classList.add('drag-over');
+  });
+  zoneSingleEmpty.addEventListener('dragleave', () => {
+    zoneSingleEmpty.classList.remove('drag-over');
+  });
+  zoneSingleEmpty.addEventListener('drop', e => {
+    e.preventDefault();
+    zoneSingleEmpty.classList.remove('drag-over');
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      fileInput.files = e.dataTransfer.files;
+      updateFileUI();
+    }
+  });
+
+  analisisForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    processBtn.textContent = 'Procesando...';
+    processBtn.disabled = true;
+    processBtn.classList.add('btn-disabled');
+    errorBox.classList.add('hidden');
+    
+    const formData = new FormData(analisisForm);
+    
+    try {
+      const response = await fetch('/api/analizar', {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (!response.ok) {
+        let msg = 'Error desconocido al procesar.';
+        try {
+          const errData = await response.json();
+          msg = errData.detail || msg;
+        } catch(err) {}
+        throw new Error(msg);
+      }
+      
+      const data = await response.json();
+      
+      // Hide form, show result
+      analisisForm.classList.add('hidden');
+      document.getElementById('resultado-block').classList.remove('hidden');
+      
+      // Setup download buttons
+      const btnContainer = document.getElementById('download-buttons');
+      btnContainer.innerHTML = '';
+      
+      // Excel Button
+      const btnExcel = document.createElement('a');
+      btnExcel.href = `/api/descargar/excel/${data.token}`;
+      btnExcel.className = 'process-btn';
+      btnExcel.style.textDecoration = 'none';
+      btnExcel.style.display = 'inline-block';
+      btnExcel.innerHTML = 'Descargar Excel Limpio';
+      if (data.tipo === 'eda') {
+        btnExcel.innerHTML = 'Descargar Excel (EDA)';
+      }
+      btnContainer.appendChild(btnExcel);
+      
+      // PDF Button (only for inventario)
+      if (data.tipo === 'inventario') {
+        const btnPdf = document.createElement('a');
+        btnPdf.href = `/api/descargar/pdf/${data.token}`;
+        btnPdf.className = 'process-btn';
+        btnPdf.style.textDecoration = 'none';
+        btnPdf.style.display = 'inline-block';
+        btnPdf.style.backgroundColor = '#ef4444'; // red for pdf
+        btnPdf.innerHTML = 'Descargar Dashboard PDF';
+        btnContainer.appendChild(btnPdf);
+      }
+      
+    } catch(err) {
+      errorBox.textContent = err.message;
+      errorBox.classList.remove('hidden');
+      processBtn.textContent = 'Procesar datos';
+      processBtn.disabled = false;
+      processBtn.classList.remove('btn-disabled');
+    }
+  });
+
+  document.getElementById('reset-btn').addEventListener('click', () => {
+    document.getElementById('resultado-block').classList.add('hidden');
+    analisisForm.classList.remove('hidden');
+    analisisForm.reset();
+    fileInput.value = '';
+    updateFileUI();
+    processBtn.textContent = 'Procesar datos';
+  });
 </script>
 {% endblock %}

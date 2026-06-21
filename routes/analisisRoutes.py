@@ -13,7 +13,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from services import edaService, inventarioService, reporteService
@@ -98,7 +98,7 @@ async def index(request: Request):
     )
 
 
-@router.post("/analizar", response_class=HTMLResponse)
+@router.post("/api/analizar")
 async def analizar(
     request: Request,
     archivo: UploadFile = File(...),
@@ -145,18 +145,16 @@ async def analizar(
 
     analisis_meta = next(a for a in ANALISIS_DISPONIBLES if a["id"] == tipo)
 
-    return templates.TemplateResponse(
-        request,
-        "analisis/resultado.html",
-        {
-            "resultado": resultado,
+    return JSONResponse(
+        content={
+            "status": "ok",
             "token": token,
-            "analisis": analisis_meta,
-        },
+            "tipo": tipo,
+        }
     )
 
 
-@router.get("/descargar/{token}")
+@router.get("/api/descargar/excel/{token}")
 async def descargar(token: str):
     """Devuelve el Excel del analisis identificado por token."""
     entrada = _CACHE.get(token)
@@ -172,4 +170,26 @@ async def descargar(token: str):
         iter([bytes_excel]),
         headers=headers,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+@router.get("/api/descargar/pdf/{token}")
+async def descargar_pdf(token: str):
+    """Devuelve el PDF del analisis identificado por token."""
+    entrada = _CACHE.get(token)
+    if not entrada:
+        raise HTTPException(404, "Reporte no disponible (expirado o inexistente)")
+    _, resultado, nombre_archivo, tipo = entrada
+    
+    if tipo != "inventario":
+        raise HTTPException(400, "El reporte PDF solo está disponible para análisis de inventario")
+
+    bytes_pdf = reporteService.generar_pdf_inventario(resultado)
+
+    nombre_base = Path(nombre_archivo).stem
+    nombre_salida = f"dashboard_{tipo}_{nombre_base}.pdf"
+    headers = {"Content-Disposition": f'attachment; filename="{nombre_salida}"'}
+    return StreamingResponse(
+        iter([bytes_pdf]),
+        headers=headers,
+        media_type="application/pdf",
     )
