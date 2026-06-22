@@ -431,6 +431,111 @@ def _kpi_zombis(
 
 
 # ---------------------------------------------------------------------------
+# KPIs Avanzados
+# ---------------------------------------------------------------------------
+
+def _kpi_salud_inventario(
+    agg: pd.DataFrame, lead_time_dias: int, factor_sobrestock: float,
+    dias_zombi: int, fecha_max: pd.Timestamp | None, costo_unit: pd.Series
+) -> dict:
+    umbral_dias = factor_sobrestock * lead_time_dias
+    venta = agg["venta_diaria_prom"].replace(0, pd.NA)
+    cobertura_dias = agg["stock_actual"] / venta
+    
+    if fecha_max is None or pd.isna(fecha_max):
+        es_zombi = agg["venta_diaria_prom"].fillna(0) == 0
+    else:
+        dias_sin = (fecha_max - agg["ultima_venta"]).dt.days
+        es_zombi = (agg["ultima_venta"].isna()) | (dias_sin > dias_zombi)
+
+    es_riesgo = (cobertura_dias < lead_time_dias) & (~es_zombi)
+    es_sobre = (cobertura_dias > umbral_dias) & (~es_zombi)
+    es_sano = (~es_zombi) & (~es_riesgo) & (~es_sobre)
+    
+    capital = (agg["stock_actual"].fillna(0) * costo_unit.loc[agg.index]).round(2)
+    
+    return {
+        "zombi": {"n": int(es_zombi.sum()), "capital": float(capital[es_zombi].sum())},
+        "sobre_stock": {"n": int(es_sobre.sum()), "capital": float(capital[es_sobre].sum())},
+        "riesgo_quiebre": {"n": int(es_riesgo.sum()), "capital": float(capital[es_riesgo].sum())},
+        "saludable": {"n": int(es_sano.sum()), "capital": float(capital[es_sano].sum())},
+    }
+
+def _kpi_metricas_globales(df: pd.DataFrame, agg: pd.DataFrame, mapeo: dict) -> dict:
+    total_vendidas = float(pd.to_numeric(df[mapeo["vendidas"]], errors="coerce").sum())
+    total_stock = float(agg["stock_actual"].sum())
+    rotacion = total_vendidas / total_stock if total_stock > 0 else 0.0
+    
+    total_venta_diaria = float(agg["venta_diaria_prom"].sum())
+    cobertura_global = total_stock / total_venta_diaria if total_venta_diaria > 0 else 0.0
+    
+    return {
+        "rotacion_unidades": round(rotacion, 2),
+        "cobertura_global_dias": round(cobertura_global, 2),
+    }
+
+def _kpi_evolucion_historica(df: pd.DataFrame, mapeo: dict) -> list[dict]:
+    col_fecha = mapeo.get("fecha")
+    if not col_fecha:
+        return []
+    
+    df_temp = df.copy()
+    df_temp[col_fecha] = pd.to_datetime(df_temp[col_fecha], errors="coerce")
+    df_temp = df_temp.dropna(subset=[col_fecha])
+    if df_temp.empty:
+        return []
+    
+    col_vend = mapeo["vendidas"]
+    col_stock = mapeo["stock"]
+    
+    df_temp["mes"] = df_temp[col_fecha].dt.to_period("M").astype(str)
+    df_temp[col_vend] = pd.to_numeric(df_temp[col_vend], errors="coerce").fillna(0)
+    df_temp[col_stock] = pd.to_numeric(df_temp[col_stock], errors="coerce").fillna(0)
+
+    agg_mensual = df_temp.groupby("mes").agg({
+        col_vend: "sum",
+        col_stock: "mean"
+    }).reset_index()
+    
+    res = []
+    for _, row in agg_mensual.iterrows():
+        res.append({
+            "fecha": row["mes"],
+            "vendidas": round(float(row[col_vend]), 2),
+            "stock": round(float(row[col_stock]), 2),
+        })
+    return res
+
+def _kpi_volatilidad(df: pd.DataFrame, mapeo: dict) -> list[dict]:
+    col_fecha = mapeo.get("fecha")
+    if not col_fecha:
+        return []
+        
+    col_prod = mapeo["producto"]
+    col_vend = mapeo["vendidas"]
+    
+    df_temp = df.copy()
+    df_temp[col_vend] = pd.to_numeric(df_temp[col_vend], errors="coerce").fillna(0)
+    df_temp[col_fecha] = pd.to_datetime(df_temp[col_fecha], errors="coerce")
+    df_temp = df_temp.dropna(subset=[col_fecha])
+    
+    if df_temp.empty:
+        return []
+
+    volumen = df_temp.groupby(col_prod)[col_vend].sum()
+    diario = df_temp.groupby([col_prod, col_fecha])[col_vend].sum().reset_index()
+    std = diario.groupby(col_prod)[col_vend].std().fillna(0)
+    
+    res_df = pd.DataFrame({
+        "producto": volumen.index,
+        "volumen": volumen.values,
+        "volatilidad": std.values
+    })
+    res_df = res_df.sort_values("volumen", ascending=False).head(50)
+    return res_df.to_dict(orient="records")
+
+
+# ---------------------------------------------------------------------------
 # Punto de entrada
 # ---------------------------------------------------------------------------
 
@@ -493,6 +598,11 @@ def analizar(
     sobre, paso_sobre = _kpi_sobre_stock(agg, lead_time_dias, factor_sobrestock, costo_unit)
     abc, paso_abc = _kpi_abc(agg)
     zombis, paso_zombi = _kpi_zombis(agg, dias_zombi, fecha_max, costo_unit)
+    
+    salud_inventario = _kpi_salud_inventario(agg, lead_time_dias, factor_sobrestock, dias_zombi, fecha_max, costo_unit)
+    metricas_globales = _kpi_metricas_globales(df, agg, mapeo)
+    evolucion_historica = _kpi_evolucion_historica(df, mapeo)
+    volatilidad = _kpi_volatilidad(df, mapeo)
 
     traza.extend([paso_riesgo, paso_sobre, paso_abc, paso_zombi])
 
@@ -532,5 +642,9 @@ def analizar(
             "sobre_stock": sobre,
             "abc": abc,
             "zombis": zombis,
+            "salud": salud_inventario,
+            "globales": metricas_globales,
+            "historico": evolucion_historica,
+            "volatilidad": volatilidad,
         },
     }

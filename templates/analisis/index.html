@@ -62,7 +62,7 @@
           <div class="drop-hint">Arrastra 1 archivo .xlsx o haz clic para examinar</div>
         </div>
 
-        <input type="file" id="file-input" name="archivo" accept=".xlsx,.xls,.csv" class="sr-only" aria-label="Seleccionar archivo Excel" required>
+        <input type="file" id="file-input" name="archivos" accept=".xlsx,.xls,.csv,.pdf" class="sr-only" aria-label="Seleccionar archivo" multiple required>
       </div>
 
       <!-- paso 3: procesar -->
@@ -128,15 +128,25 @@
 
   function updateFileUI() {
     if (fileInput.files && fileInput.files.length > 0) {
-      const file = fileInput.files[0];
-      if (file.size > 50 * 1024 * 1024) {
-        errorBox.textContent = `"${file.name}" supera el límite de 50 MB.`;
+      let totalSize = 0;
+      for (let i = 0; i < fileInput.files.length; i++) {
+        totalSize += fileInput.files[i].size;
+      }
+      
+      if (totalSize > 50 * 1024 * 1024) {
+        errorBox.textContent = `El tamaño total supera el límite de 50 MB.`;
         errorBox.classList.remove('hidden');
         fileInput.value = '';
         return;
       }
       errorBox.classList.add('hidden');
-      singleFileName.textContent = file.name;
+      
+      if (fileInput.files.length === 1) {
+          singleFileName.textContent = fileInput.files[0].name;
+      } else {
+          singleFileName.textContent = `${fileInput.files.length} archivos seleccionados`;
+      }
+      
       zoneSingleEmpty.classList.add('hidden');
       zoneSingleSel.classList.remove('hidden');
       processBtn.disabled = false;
@@ -225,13 +235,22 @@
       
       // PDF Button (only for inventario)
       if (data.tipo === 'inventario') {
+        const btnDash = document.createElement('a');
+        btnDash.href = `/dashboard/${data.token}`;
+        btnDash.className = 'process-btn';
+        btnDash.style.textDecoration = 'none';
+        btnDash.style.display = 'inline-block';
+        btnDash.style.backgroundColor = '#10b981'; // emerald for dashboard
+        btnDash.innerHTML = 'Ver Dashboard Web';
+        btnContainer.appendChild(btnDash);
+
         const btnPdf = document.createElement('a');
         btnPdf.href = `/api/descargar/pdf/${data.token}`;
         btnPdf.className = 'process-btn';
         btnPdf.style.textDecoration = 'none';
         btnPdf.style.display = 'inline-block';
         btnPdf.style.backgroundColor = '#ef4444'; // red for pdf
-        btnPdf.innerHTML = 'Descargar Dashboard PDF';
+        btnPdf.innerHTML = 'Descargar PDF';
         btnContainer.appendChild(btnPdf);
       }
       

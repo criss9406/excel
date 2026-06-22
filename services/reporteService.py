@@ -280,10 +280,13 @@ def generar_pdf_inventario(resultado: dict[str, Any]) -> bytes:
     # Resumen
     elementos.append(Paragraph("Resumen General", subtitle_style))
     inv = resultado.get("kpis_inventario", {})
+    glob = inv.get("globales", {})
     datos_resumen = [
         ["Total Productos (Filas)", str(resultado.get("n_filas", 0))],
         ["Columnas", str(resultado.get("n_columnas", 0))],
         ["Ingreso Total ABC", f"${inv.get('abc', {}).get('ingreso_total', 0):,.0f}".replace(',', '.')],
+        ["Rotación (Veces)", str(glob.get("rotacion_unidades", "-"))],
+        ["Cobertura Global (Días)", str(glob.get("cobertura_global_dias", "-"))],
     ]
     t_resumen = Table(datos_resumen, colWidths=[200, 200])
     t_resumen.setStyle(TableStyle([
@@ -292,6 +295,26 @@ def generar_pdf_inventario(resultado: dict[str, Any]) -> bytes:
         ('PADDING', (0, 0), (-1, -1), 6),
     ]))
     elementos.append(t_resumen)
+    elementos.append(Spacer(1, 12))
+    
+    # Salud del Inventario
+    elementos.append(Paragraph("Distribución de Salud del Inventario", subtitle_style))
+    salud = inv.get("salud", {})
+    if salud:
+        datos_salud = [
+            ["Estado", "N° Productos", "Capital Inmovilizado ($)"],
+            ["Saludable", str(salud.get("saludable", {}).get("n", 0)), f"{salud.get('saludable', {}).get('capital', 0):,.0f}".replace(',', '.')],
+            ["Riesgo Quiebre", str(salud.get("riesgo_quiebre", {}).get("n", 0)), f"{salud.get('riesgo_quiebre', {}).get('capital', 0):,.0f}".replace(',', '.')],
+            ["Sobre-stock", str(salud.get("sobre_stock", {}).get("n", 0)), f"{salud.get('sobre_stock', {}).get('capital', 0):,.0f}".replace(',', '.')],
+            ["Zombis", str(salud.get("zombi", {}).get("n", 0)), f"{salud.get('zombi', {}).get('capital', 0):,.0f}".replace(',', '.')]
+        ]
+        t_salud = Table(datos_salud)
+        t_salud.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1F3A5F")),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.lightgrey),
+        ]))
+        elementos.append(t_salud)
     elementos.append(Spacer(1, 12))
     
     # Riesgo de Quiebre

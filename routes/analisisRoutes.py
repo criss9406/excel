@@ -35,10 +35,18 @@ _MAX_ENTRADAS = 20
 
 # Catalogo de analisis disponibles en la UI.
 ANALISIS_DISPONIBLES = [
-    {"id": "eda", "nombre": "EDA — Analisis exploratorio de datos",
-     "descripcion": "Revisa nulos, outliers, formatos, duplicados y cardinalidad."},
-    {"id": "inventario", "nombre": "Inventario — riesgo, sobre-stock, ABC y zombis",
-     "descripcion": "Detecta productos con riesgo de quiebre, sobre-stock, los clasifica ABC y marca los zombis sin ventas."},
+    {"id": "eda", "nombre": "EDA — Análisis exploratorio de datos", "descripcion": "Revisa nulos, outliers, formatos, duplicados y cardinalidad."},
+    {"id": "inventario", "nombre": "Análisis de Inventario", "descripcion": "Detecta productos con riesgo de quiebre, sobre-stock, los clasifica ABC y marca los zombis."},
+    {"id": "copy_paste", "nombre": "Copy-paste Diario (Anexar datos)", "descripcion": "Extrae filas de un reporte diario y las anexa automáticamente al reporte maestro histórico."},
+    {"id": "limpieza", "nombre": "Limpieza de Datos Sucios", "descripcion": "Estandariza formatos de fecha y números, y elimina filas duplicadas de una exportación cruda."},
+    {"id": "reporte_recurrente", "nombre": "Reporte Recurrente Automático", "descripcion": "Aplica formato y transformaciones estandarizadas a los datos crudos del mes."},
+    {"id": "consolidacion", "nombre": "Consolidación de Múltiples Archivos", "descripcion": "Une varios archivos idénticos (ej. sucursales) en una tabla única con origen."},
+    {"id": "reconciliacion", "nombre": "Reconciliación Manual (Cruce)", "descripcion": "Cruza una cartola bancaria con un libro mayor para encontrar diferencias y partidas pendientes."},
+    {"id": "pdf_to_excel", "nombre": "Extracción PDF a Excel", "descripcion": "Lee la tabla principal de un reporte en PDF y la exporta directamente a Excel limpio."},
+    {"id": "cobranzas", "nombre": "Seguimiento de Cobranzas", "descripcion": "Calcula mora por cliente y clasifica el estado para habilitar alertas automáticas."},
+    {"id": "generacion_doc", "nombre": "Generación de Documentos (Zip)", "descripcion": "Lee un Excel y genera un lote de reportes (TXT/CSV) emulando plantillas masivas de contratos o facturas."},
+    {"id": "carga_erp", "nombre": "Preparación Carga a ERP", "descripcion": "Valida un Excel contra reglas de negocio y genera un log de validación estructurado listo para RPA."},
+    {"id": "reporte_rrhh", "nombre": "Reporte RRHH (Reloj Control)", "descripcion": "Pivotea marcas de entrada/salida y resume horas totales por empleado para la plantilla oficial."},
 ]
 
 
@@ -101,7 +109,7 @@ async def index(request: Request):
 @router.post("/api/analizar")
 async def analizar(
     request: Request,
-    archivo: UploadFile = File(...),
+    archivos: list[UploadFile] = File(...),
     tipo: str = Form(...),
     lead_time_dias: int = Form(7),
     margen_pct: float = Form(30.0),
@@ -112,32 +120,68 @@ async def analizar(
     if tipo not in {a["id"] for a in ANALISIS_DISPONIBLES}:
         raise HTTPException(400, f"Tipo de analisis desconocido: {tipo}")
 
+    if not archivos:
+        raise HTTPException(400, "Debe seleccionar al menos un archivo")
+
+    # Tomar el primer archivo para los flujos que asumen uno solo
+    archivo = archivos[0]
     nombre = archivo.filename or "archivo"
-    if not nombre.lower().endswith((".xlsx", ".xls", ".csv")):
-        raise HTTPException(400, "Formato no soportado. Use .xlsx, .xls o .csv")
+    
+    # Importar servicios de automatizacion aqui para evitar ciclos
+    from services.automations import (
+        data_cleaning, 
+        consolidation_reconciliation, 
+        document_processing, 
+        workflow_automation
+    )
 
     contenido = await archivo.read()
     if not contenido:
         raise HTTPException(400, "El archivo esta vacio")
 
-    if tipo == "eda":
-        try:
+    resultado = None
+    try:
+        if tipo == "eda":
             resultado = edaService.analizar(contenido, nombre)
-        except Exception as e:
-            raise HTTPException(400, f"No se pudo procesar el archivo: {e}")
-    elif tipo == "inventario":
-        try:
+        elif tipo == "inventario":
             resultado = inventarioService.analizar(
-                contenido, nombre,
-                lead_time_dias=lead_time_dias,
-                margen_pct=margen_pct,
-                dias_zombi=dias_zombi,
-                factor_sobrestock=factor_sobrestock,
+                contenido, nombre, lead_time_dias=lead_time_dias, margen_pct=margen_pct,
+                dias_zombi=dias_zombi, factor_sobrestock=factor_sobrestock
             )
-        except Exception as e:
-            raise HTTPException(400, f"No se pudo procesar el archivo: {e}")
-    else:
-        raise HTTPException(400, f"Tipo no implementado: {tipo}")
+        elif tipo == "copy_paste":
+            if len(archivos) < 2: raise HTTPException(400, "Se requieren 2 archivos para Copy-Paste Diario (Maestro y Diario).")
+            c1, c2 = contenido, await archivos[1].read()
+            resultado = data_cleaning.procesar_copy_paste(c1, c2, archivos[0].filename, archivos[1].filename)
+        elif tipo == "limpieza":
+            resultado = data_cleaning.procesar_limpieza(contenido, nombre)
+        elif tipo == "reporte_recurrente":
+            resultado = data_cleaning.procesar_recurrente(contenido, nombre)
+        elif tipo == "consolidacion":
+            if len(archivos) < 2: raise HTTPException(400, "Seleccione múltiples archivos para consolidar.")
+            conts = [contenido] + [await a.read() for a in archivos[1:]]
+            nombres = [a.filename for a in archivos]
+            resultado = consolidation_reconciliation.procesar_consolidacion(conts, nombres)
+        elif tipo == "reconciliacion":
+            if len(archivos) < 2: raise HTTPException(400, "Se requieren 2 archivos (Cartola y Libro Mayor).")
+            c1, c2 = contenido, await archivos[1].read()
+            resultado = consolidation_reconciliation.procesar_reconciliacion(c1, c2, archivos[0].filename, archivos[1].filename)
+        elif tipo == "pdf_to_excel":
+            resultado = document_processing.procesar_pdf(contenido, nombre)
+        elif tipo == "cobranzas":
+            resultado = workflow_automation.procesar_cobranzas(contenido, nombre)
+        elif tipo == "generacion_doc":
+            resultado = document_processing.procesar_generacion(contenido, nombre)
+            tipo = "zip" # To instruct downloading a zip
+        elif tipo == "carga_erp":
+            resultado = workflow_automation.procesar_carga_erp(contenido, nombre)
+        elif tipo == "reporte_rrhh":
+            if len(archivos) < 2: raise HTTPException(400, "Se requiere reloj control bruto y plantilla.")
+            c1, c2 = contenido, await archivos[1].read()
+            resultado = workflow_automation.procesar_rrhh(c1, c2, archivos[0].filename, archivos[1].filename)
+        else:
+            raise HTTPException(400, f"Tipo no implementado: {tipo}")
+    except Exception as e:
+        raise HTTPException(400, f"No se pudo procesar el flujo '{tipo}': {str(e)}")
 
     _limpiar_cache()
     token = uuid.uuid4().hex
@@ -164,12 +208,27 @@ async def descargar(token: str):
     bytes_excel = reporteService.generar_excel(resultado)
 
     nombre_base = Path(nombre_archivo).stem
-    nombre_salida = f"reporte_{tipo}_{nombre_base}.xlsx"
+    
+    if tipo == "zip":
+        nombre_salida = f"reportes_generados_{nombre_base}.zip"
+        media = "application/zip"
+        bytes_out = resultado["zip_bytes"]
+    else:
+        nombre_salida = f"resultado_{tipo}_{nombre_base}.xlsx"
+        media = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        # Para herramientas que devuelven el dict "resultado" estándar con 'df_dict' vs devolver raw bytes
+        if isinstance(resultado, dict) and "excel_bytes" in resultado:
+            bytes_out = resultado["excel_bytes"]
+        elif isinstance(resultado, dict) and "df_dict" in resultado:
+            bytes_out = reporteService.generar_excel(resultado)
+        else:
+            bytes_out = reporteService.generar_excel({"df_dict": []})
+
     headers = {"Content-Disposition": f'attachment; filename="{nombre_salida}"'}
     return StreamingResponse(
-        iter([bytes_excel]),
+        iter([bytes_out]),
         headers=headers,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        media_type=media,
     )
 
 @router.get("/api/descargar/pdf/{token}")
@@ -192,4 +251,25 @@ async def descargar_pdf(token: str):
         iter([bytes_pdf]),
         headers=headers,
         media_type="application/pdf",
+    )
+
+
+@router.get("/dashboard/{token}", response_class=HTMLResponse)
+async def ver_dashboard(request: Request, token: str):
+    """Muestra el dashboard interactivo del analisis de inventario."""
+    entrada = _CACHE.get(token)
+    if not entrada:
+        raise HTTPException(404, "Reporte no disponible (expirado o inexistente)")
+    _, resultado, nombre_archivo, tipo = entrada
+    
+    if tipo != "inventario":
+        raise HTTPException(400, "El dashboard web solo está disponible para análisis de inventario")
+        
+    return templates.TemplateResponse(
+        request,
+        "analisis/dashboard.html",
+        {
+            "resultado": resultado,
+            "token": token
+        }
     )
